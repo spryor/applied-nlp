@@ -114,10 +114,6 @@ class FederalistCreator(simple: Boolean = false) extends PointCreator {
     })
   }
 
-  //def extractSimple(texts: IndexedSeq[String]): IndexedSeq[Point] = {
-  //
-  //}
-
   /**
    * Given the text of an article, extract features as best you can to try to
    * get good alignment of the produced clusters with the known authors.
