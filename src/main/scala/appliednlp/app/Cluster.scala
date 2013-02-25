@@ -11,6 +11,9 @@ import nak.cluster.PointTransformer
 
 import appliednlp.cluster._
 
+import jarvis.cluster.{Kmeans => JarvisKmeans}
+
+
 /**
  * A standalone object with a main method for reading an input file and running
  * k-means with different options.
@@ -27,8 +30,23 @@ object Cluster {
     Logger.getRootLogger.setLevel(logLevel)
     
     // Your code starts here. You'll use and extend it during every problem.
-
-
+    val data = opts.features() match {
+      case "schools" => SchoolsCreator(opts.filename()).toIndexedSeq
+      case "countries" => CountriesCreator(opts.filename()).toIndexedSeq
+      case "fed-simple" => (new FederalistCreator())(opts.filename()).toIndexedSeq
+      case "fed-full" => (new FederalistCreator(true))(opts.filename()).toIndexedSeq
+      case _ => DirectCreator(opts.filename()).toIndexedSeq
+    }
+    val points = data.map(_._3)
+    val goldClusterIds = data.map(_._2)
+    val model = new Kmeans(PointTransformer(opts.transform(), points)(points), DistanceFunction(opts.distance()), fixedSeedForRandom = true)
+    val results = model.run(opts.k())
+    val memberships = model.computeClusterMemberships(results._2) 
+    val predictedClusterIndices = memberships._2
+    val confusion = ClusterConfusionMatrix(goldClusterIds, opts.k(), predictedClusterIndices)
+    if(opts.showCentroids()) results._2.foreach(println)
+    println(confusion)
+    if(opts.report()) ClusterReport(data.map(_._1).toSeq, goldClusterIds, predictedClusterIndices)
   }
 
 }

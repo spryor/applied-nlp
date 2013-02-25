@@ -23,10 +23,16 @@ trait PointCreator extends (String => Iterator[(String,String,Point)])
  */
 object DirectCreator extends PointCreator {
 
- def apply(filename: String) = List[(String,String,Point)]().toIterator
+ def apply(filename: String) = {
+   io.Source.fromFile(filename).getLines.map(extractPoint)
+ }
 
+ def extractPoint(line:String) = {
+   line.trim.split("\\s+") match { 
+     case Array(i, c, x, y) => {(i, c, Point(IndexedSeq(x.toDouble, y.toDouble)))}
+   } 
+ }
 }
-
 
 /**
  * A standalone object with a main method for converting the achieve.dat rows
@@ -34,8 +40,23 @@ object DirectCreator extends PointCreator {
  */
 object SchoolsCreator extends PointCreator {
 
-  def apply(filename: String) = List[(String,String,Point)]().toIterator
+  val regex = """([\sa-zA-Z.]+)(-?[0-9.]+)\s+(-?[0-9.]+)\s+(-?[0-9.]+)\s+(-?[0-9.]+)""".r
 
+  def apply(filename: String) = {
+    io.Source.fromFile(filename).getLines.flatMap(extractSchool)
+  }
+
+  def extractSchool(line:String) = {
+   line.trim match { 
+     case regex(n, r4, m4, r6, m6) => {
+       val name = n.trim.replaceAll("\\s+","_")
+       Iterator(
+         (name+"_4th", "4", Point(IndexedSeq(r4.toDouble, m4.toDouble))), 
+         (name+"_6th", "6", Point(IndexedSeq(r6.toDouble, m6.toDouble)))
+        )
+      }
+    }
+  } 
 }
 
 /**
@@ -44,7 +65,17 @@ object SchoolsCreator extends PointCreator {
  */
 object CountriesCreator extends PointCreator {
 
-  def apply(filename: String) = List[(String,String,Point)]().toIterator
+  val regex = """([\sa-zA-Z.]+)(-?[0-9.]+)\s+(-?[0-9.]+)""".r  
+
+  def apply(filename: String) = {
+    io.Source.fromFile(filename).getLines.map(extractCountry)
+  }
+
+  def extractCountry(line:String) = {
+    line.trim match {
+      case regex(c, x, y) => { (c.trim.replaceAll("\\s+","_"), "1", Point(IndexedSeq(x.toDouble, y.toDouble))) }
+    }
+  }
 
 }
 
@@ -57,7 +88,14 @@ object CountriesCreator extends PointCreator {
  */
 class FederalistCreator(simple: Boolean = false) extends PointCreator {
 
-  def apply(filename: String) = List[(String,String,Point)]().toIterator
+  val simpleWordsToLookFor = IndexedSeq("the","people","which")
+
+  def apply(filename: String) = {
+    val rawData = FederalistArticleExtractor(filename)
+    val texts = rawData.map(_("text"))
+    val featureVectors = if(!simple) extractSimple(texts) else extractFull(texts)
+    (0 to rawData.length-1).map(i => (rawData(i)("id"), rawData(i)("author").replaceAll("\\s+","_"), featureVectors(i))).toIterator
+  }
 
   /**
    * Given the text of an article, compute the frequency of "the", "people"
@@ -70,8 +108,15 @@ class FederalistCreator(simple: Boolean = false) extends PointCreator {
    *              FederalistArticleExtractor).
    */
   def extractSimple(texts: IndexedSeq[String]): IndexedSeq[Point] = {
-    Vector[Point]()
+    texts.map(text => {
+              val tokens = SimpleTokenizer(text)        
+              Point(simpleWordsToLookFor.map(w => tokens.count(_.toLowerCase == w).toDouble))
+    })
   }
+
+  //def extractSimple(texts: IndexedSeq[String]): IndexedSeq[Point] = {
+  //
+  //}
 
   /**
    * Given the text of an article, extract features as best you can to try to
@@ -82,7 +127,30 @@ class FederalistCreator(simple: Boolean = false) extends PointCreator {
    *              FederalistArticleExtractor).
    */
   def extractFull(texts: IndexedSeq[String]): IndexedSeq[Point] = {
-    Vector[Point]()
+    val n = 1
+    val ngrams = toNgram(n, texts.mkString(" "))
+    val documentFreq = texts.map(toNgram(n, _))
+
+    val numNgrams = ngrams.map(_._2).sum
+    val selectedFeatures = ngrams.keys.map(ngram => (ngram, ngrams(ngram)/numNgrams)).toMap.filter(_._2 >= .00008).withDefaultValue(0.0)
+
+    (0 to documentFreq.length - 1).map(i => {
+      val documentNgrams = documentFreq(i)
+      Point(selectedFeatures.keys.toIndexedSeq.map(ngram => documentNgrams(ngram)))
+    })
+  }
+
+  def toNgram(n:Int, text:String) = {
+    SimpleTokenizer(text.toLowerCase).filter(!_.matches("[!'\"?!$:;&,.()]"))
+      .sliding(n)
+      .toIndexedSeq
+      .map{ 
+        case Vector(a) => (a)
+        case Vector(a, b) => (a, b)
+        case Vector(a, b, c) => (a, b, c)
+      }.groupBy(x => x)
+      .mapValues(_.length.toDouble)
+      .withDefaultValue(0.0)
   }
 
 }
